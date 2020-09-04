@@ -196,7 +196,7 @@ export default function Home() {
         <link rel="icon" href="/favicon.ico" />
       </Head>
 
-      <Container>
+      <Container maxWidth={false}>
         <main className={styles.main}>
           <h1 className={styles.title}>Nutrition Facts to HTML</h1>
 

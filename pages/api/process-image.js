@@ -1,7 +1,15 @@
 // Next.js API route support: https://nextjs.org/docs/api-routes/introduction
 import formidable from 'formidable';
 import vision from '@google-cloud/vision';
-const client = new vision.ImageAnnotatorClient();
+
+const credential = JSON.parse(
+  Buffer.from(process.env.GCLOUD_CREDENTIALS, 'base64').toString(),
+);
+
+const client = new vision.ImageAnnotatorClient({
+  projectId: 'comspaces-1554534785099',
+  credentials: credential,
+});
 
 export default async (req, res) => {
   try {
