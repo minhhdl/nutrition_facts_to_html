@@ -2,7 +2,13 @@ import React, { useState, useMemo, useRef, useLayoutEffect } from 'react';
 import ReactDOMServer from 'react-dom/server';
 import Head from 'next/head';
 import axios from 'axios';
-import { Container, Grid } from '@material-ui/core';
+import {
+  Container,
+  Grid,
+  Button,
+  TextField,
+  CircularProgress,
+} from '@material-ui/core';
 import beautifier from 'js-beautify';
 import AceEditor from 'react-ace';
 import ReactFittext from 'react-textfit';
@@ -47,6 +53,8 @@ const analyzeText = (fullText, ocrResult) =>
 export default function Home() {
   const [file, setFile] = useState(null);
   const [base64, setBase64] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
   const [fullText, setFullText] = useState('');
   const [textByLine, setTextByLine] = useState([]);
   const [textAnnotations, setTextAnnotations] = useState(null);
@@ -58,7 +66,7 @@ export default function Home() {
 
   React.useEffect(() => {
     convertHtml();
-  }, [textByLine, compressor]);
+  }, [textByLine, compressor, width, height]);
 
   const handleFileChange = async (e) => {
     if (!e.target.files || e.target.files.length === 0) {
@@ -73,6 +81,7 @@ export default function Home() {
   const handleUpload = async () => {
     try {
       if (!file) return null;
+      setLoading(true);
       const form = new FormData();
       form.append('file', file);
       const result = await axios.post('/api/process-image', form, {
@@ -90,7 +99,12 @@ export default function Home() {
         'textAnnotations',
         JSON.stringify(result.data.textAnnotations),
       );
-    } catch (e) {}
+      setErrorMessage('');
+      setLoading(false);
+    } catch (e) {
+      setLoading(false);
+      setErrorMessage(e.message);
+    }
   };
 
   const container = useMemo(() => {
@@ -200,14 +214,24 @@ export default function Home() {
         <main className={styles.main}>
           <h1 className={styles.title}>Nutrition Facts to HTML</h1>
 
-          <div>
-            <input
-              type="file"
-              multiple={false}
-              id="file"
-              onChange={handleFileChange}
-            />
-            <button onClick={handleUpload}>Upload</button>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ marginBottom: 20 }}>
+              <input
+                type="file"
+                multiple={false}
+                id="file"
+                onChange={handleFileChange}
+              />
+            </div>
+            <Button
+              variant="contained"
+              color="primary"
+              onClick={handleUpload}
+              disabled={loading}
+            >
+              {loading && <CircularProgress color="secondary" />}
+              Upload
+            </Button>
           </div>
           <Grid container spacing={2}>
             <Grid item lg={6}>
@@ -240,20 +264,30 @@ export default function Home() {
             <Grid item lg={6}>
               <h4>Kích thước:</h4>
               <div>
-                <label htmlFor="width">Width{'\n'}</label>
-                <input id="width" type="numeric" value={width} />
+                <TextField
+                  id="width"
+                  label="Width"
+                  type="number"
+                  value={width}
+                  onChange={(e) => setWidth(e.target.value)}
+                />
                 {'\n'}
-                <label htmlFor="height">Height{'\n'}</label>
-                <input id="height" type="numeric" value={height} />
+                <TextField
+                  id="height"
+                  label="Height"
+                  type="number"
+                  value={height}
+                  onChange={(e) => setHeight(e.target.value)}
+                />
               </div>
             </Grid>
             <Grid item lg={6}>
               <h4>Nén ký tự:</h4>
               <div>
-                <label htmlFor="width">Nén{'\n'}</label>
-                <input
-                  id="width"
-                  type="numeric"
+                <TextField
+                  id="compressor"
+                  type="number"
+                  label="Compressor"
                   value={compressor}
                   onChange={(e) => setCompressor(e.target.value)}
                 />
