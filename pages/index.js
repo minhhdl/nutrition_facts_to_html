@@ -25,9 +25,9 @@ const toBase64 = (file) =>
   });
 
 const analyzeText = (fullText, ocrResult) =>
-  new Promise((resolve) => {
+  new Promise(async (resolve) => {
     let result = [...ocrResult];
-    const byRow = {};
+    let byRow = [];
     for (let rowIndex in fullText) {
       const matchedIndexes = [];
       const row = fullText[rowIndex];
@@ -47,7 +47,57 @@ const analyzeText = (fullText, ocrResult) =>
       );
       result = [...tmp];
     }
-    resolve(byRow);
+    byRow.sort((item1, item2) => {
+      const item1First = item1[0];
+      const item2First = item2[0];
+      const { vertices: vertices1 } = item1First.boundingPoly;
+      const { vertices: vertices2 } = item2First.boundingPoly;
+      const [tlPoint1] = vertices1;
+      const [tlPoint2] = vertices2;
+      return tlPoint1.y - tlPoint2.y;
+    });
+    const wrapped = await wrapRow(byRow);
+    resolve(wrapped);
+  });
+
+const checkIsOverlapping = (item1, item2) =>
+  new Promise((resolve) => {
+    const item1First = item1[item1.length - 1];
+    const item2First = item2[item2.length - 1];
+    // console.log(item1, item2, item1First, item2First);
+    const { vertices: vertices1 } = item1First.boundingPoly;
+    const { vertices: vertices2 } = item2First.boundingPoly;
+    const [tlPoint1, trPoint1, brPoint1, blPoint1] = vertices1;
+    const [tlPoint2, trPoint2, brPoint2, blPoint2] = vertices2;
+
+    if (tlPoint1.y <= tlPoint2.y && tlPoint2.y <= blPoint1.y) {
+      resolve(true);
+    }
+
+    if (tlPoint1.y <= blPoint2.y && blPoint2.y <= blPoint1.y) {
+      resolve(true);
+    }
+
+    resolve(false);
+  });
+
+const wrapRow = (data) =>
+  new Promise(async (resolve) => {
+    const wrapped = [[data[0]]];
+    for (let index = 1; index < data.length; index++) {
+      const part = data[index];
+      const rowCurrent = wrapped[wrapped.length - 1];
+      const isOverlapping = await checkIsOverlapping(
+        rowCurrent[rowCurrent.length - 1],
+        part,
+      );
+      if (isOverlapping) {
+        wrapped[wrapped.length - 1] = [...rowCurrent, part];
+      } else {
+        wrapped.push([part]);
+      }
+    }
+    resolve(wrapped);
   });
 
 export default function Home() {
@@ -55,7 +105,7 @@ export default function Home() {
   const [base64, setBase64] = useState(null);
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
-  const [fullText, setFullText] = useState('');
+  const [tesseract, setTesseract] = useState(null);
   const [textByLine, setTextByLine] = useState([]);
   const [textAnnotations, setTextAnnotations] = useState(null);
   const [htmlCode, setHtmlCode] = useState('');
@@ -66,7 +116,7 @@ export default function Home() {
 
   React.useEffect(() => {
     convertHtml();
-  }, [textByLine, compressor, width, height]);
+  }, [textByLine]);
 
   const handleFileChange = async (e) => {
     if (!e.target.files || e.target.files.length === 0) {
@@ -92,7 +142,7 @@ export default function Home() {
       const fullTextResult = tmp[0].description.split('\n');
       const byRow = await analyzeText(fullTextResult, tmp.slice(1));
       setTextByLine(byRow);
-      setFullText(tmp[0].description.split('\n'));
+      setTesseract(result.data.tesseract);
       localStorage.setItem('byRow', JSON.stringify(byRow));
       localStorage.setItem('fullText', fullTextResult);
       localStorage.setItem(
@@ -138,6 +188,37 @@ export default function Home() {
     };
   }, [container, textByLine]);
 
+  const renderPart = (part, rowHeight, rowTlPoint) => {
+    const firstWord = part[0];
+    const { vertices } = firstWord.boundingPoly;
+    const [tlPoint, trPoint, brPoint, blPoint] = vertices;
+    const height = 15;
+    const top = Math.floor(((tlPoint.y - rowTlPoint.y) / rowHeight) * 100);
+    const left = Math.floor((tlPoint.x / container.width) * 100);
+
+    return (
+      <>
+        <div
+          style={{
+            maxWidth: '100%',
+            // height: `${height}%`,
+            position: 'absolute',
+            top: `${top}%`,
+            bottom: 0,
+            left: `${left}%`,
+            margin: 'auto',
+            fontSize: 15,
+            lineHeight: 1,
+            display: 'flex',
+            alignItems: 'center',
+          }}
+        >
+          {part.map((word) => word.description).join(' ')}
+        </div>
+      </>
+    );
+  };
+
   const convertHtml = () => {
     if (!container || !textByLine.length === 0) return null;
     const {
@@ -146,7 +227,7 @@ export default function Home() {
       widthRatio,
       heightRatio,
     } = dimension;
-
+    console.log(textByLine);
     const html = ReactDOMServer.renderToStaticMarkup(
       <div
         style={{
@@ -159,29 +240,34 @@ export default function Home() {
           maxWidth: '100%',
         }}
       >
-        {Object.keys(textByLine).map((key) => {
-          const row = textByLine[key];
-          const firstWord = row[0];
+        {textByLine.map((row) => {
+          const firstPart = row[0];
+          const firstWord = firstPart[0];
           const { vertices } = firstWord.boundingPoly;
           const [tlPoint, trPoint, brPoint, blPoint] = vertices;
-          const height = ((blPoint.y - tlPoint.y) / container.height) * 100;
-          const top = (tlPoint.y / container.height) * 100;
-          const left = (tlPoint.x / container.width) * 100;
+          const height = row.reduce((s, part) => {
+            const firstWord = part[0];
+            const { vertices } = firstWord.boundingPoly;
+            const [tlPoint, trPoint, brPoint, blPoint] = vertices;
+            const partHeight = Math.floor(
+              ((blPoint.y - tlPoint.y) / container.height) * 100,
+            );
+            return s + partHeight;
+          }, 0);
 
           return (
             <div
-              className={styles.row}
               style={{
-                maxWidth: '100%',
-                height: `${height}%`,
-                position: 'absolute',
-                top: `${top}%`,
-                left: `${left}%`,
-                fontSize: `${height * compressor}%`,
-                lineHeight: 1,
+                position: 'relative',
+                display: 'flex',
+                alignItems: 'center',
+                borderBottom: '1px solid #777',
+                height: `${height * 1.25}%`,
               }}
             >
-              {row.map((word) => word.description).join(' ')}
+              {row.map((part, index) =>
+                renderPart(part, (height * container.height) / 100, tlPoint),
+              )}
             </div>
           );
         })}
